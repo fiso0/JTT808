@@ -1,3 +1,4 @@
+#if 1
 #include "mxapp_srv_jtt.h"
 #include "mxapp_srvinteraction_jtt.h"
 
@@ -34,11 +35,48 @@ static kal_uint8 mxapp_srv_con_login = 0;//0,1,2
 static kal_uint8 mxapp_srv_send_err = 0;
 static kal_uint8 mxapp_srv_con_req_cnt = 0;
 
+static kal_char srv_ip[16];
+static kal_uint16 srv_port;
 
 static void mxapp_srv_reconnect(void);
 static void mxapp_srv_disconnect(void);
 static void mxapp_srv_heart(void);
 
+void mxapp_srv_address_set(kal_char * ip, kal_uint16 port)
+{
+	if (ip)
+	{
+		kal_mem_cpy(srv_ip, ip, 16);
+	}
+
+	if (port != 0)
+	{
+		srv_port = port;
+	}
+
+	mx_srv_auth_code_clear(); // 重连服务器之前 清空鉴权码
+	mxapp_srv_reconnect(); // 重连服务器
+
+	mxapp_trace("%s: %s %d", __FUNCTION__, srv_ip, srv_port);
+}
+
+void mxapp_srv_address_get(kal_char * ip, kal_uint16 * port)
+{
+	kal_mem_cpy(ip, srv_ip, 16);
+	*port = srv_port;
+	mxapp_trace("%s: %s %d", __FUNCTION__, ip, *port);
+}
+
+static kal_bool mxapp_srv_call_connected(void)
+{
+#if (DEBUG_IN_VS == 0)
+	if(srv_ucm_query_call_count(SRV_UCM_CALL_STATE_ALL, SRV_UCM_CALL_TYPE_ALL, NULL) > 0)
+	{
+		return KAL_TRUE;
+	}
+#endif
+	return KAL_FALSE;
+}
 
 static void mxapp_srv_recv_handle(kal_uint8 *dat_in, kal_uint16 in_len)
 {
@@ -68,12 +106,12 @@ static void mxapp_srv_recv_handle(kal_uint8 *dat_in, kal_uint16 in_len)
 
 	if (dat_in)
 	{
-		mx_srv_receive_handle_jtt(0, dat_in, in_len);
+		ret = mx_srv_receive_handle_jtt(0, dat_in, in_len);
 	}
 
 	mxapp_srv_heart();
 
-	mxapp_trace("%s leave (%d)(%x)(%x)(%d)\r\n", __FUNCTION__, ret, cmd_t, dat_in ? (*dat_in) : 0, in_len);
+	mxapp_trace("%s leave (ret=%d)[%x](len=%d)\r\n", __FUNCTION__, ret, cmd_t, /*dat_in ? (*dat_in) : 0, */in_len);
 }
 
 static void mxapp_srv_ind(kal_int8 hdl, kal_uint32 evt)
@@ -133,7 +171,8 @@ static void mxapp_srv_ind(kal_int8 hdl, kal_uint32 evt)
 		StopTimer(MXAPP_TIMER_CMD_TIMEOUT_SERVICE);
 		mxapp_srv_recon_cnt = 0;
 		mxapp_srv_con_state = 2;
-		mx_srv_register_jtt();
+		mxapp_srvinteraction_first_location();
+		mxapp_srvinteraction_connect(0);
 		break;
 
 	case MX_TCP_EVT_CAN_WRITE:
@@ -189,12 +228,13 @@ static void mxapp_srv_ind(kal_int8 hdl, kal_uint32 evt)
 	case MX_TCP_EVT_HOST_NOT_FOUND:
 	case MX_TCP_EVT_PIPE_CLOSED:
 		mxapp_srv_recon_cnt++;
+		mxapp_trace("mxapp_srv_recon_cnt=%d", mxapp_srv_recon_cnt);
 		if (mxapp_srv_recon_cnt >= MXAPP_SRV_RECON_COUNT_MAX)
 		{
 			mxapp_srv_recon_cnt = 0;
 			mxapp_srv_disconnect();
 			/*****/
-			if (KAL_FALSE == mx_srv_call_connected())
+			if (KAL_FALSE == mxapp_srv_call_connected())
 			{
 				mmi_flight_mode_switch_for_mx(1);/*normal--->flight*/
 				StopTimer(MXAPP_TIMER_CMD_TIMEOUT_SERVICE);
@@ -218,7 +258,7 @@ static void mxapp_srv_ind(kal_int8 hdl, kal_uint32 evt)
 	}
 }
 
-static void mxapp_srv_connect(void)
+void mxapp_srv_connect(void)
 {
 	kal_int8 hdl = mxapp_srv_hdl;
 
@@ -233,13 +273,21 @@ static void mxapp_srv_connect(void)
 	mxapp_srv_con_state = 0;
 	mxapp_srv_con_login = 0;
 
-	if (KAL_TRUE == mx_srv_call_connected())
+	mx_srv_config_nv_read(); // read NV (srv ip and port included)
+
+	if (KAL_TRUE == mxapp_srv_call_connected())
 	{
 		hdl = -1;
 	}
 	else
 	{
+#if (SRV_USE_NVRAM == 1)
+		mxapp_trace("tcp_connect:%s(%d)\r\n", srv_ip, srv_port);
+		hdl = mx_tcp_connect(srv_ip, srv_port, mx_net_get_apn(0), mxapp_srv_ind);
+#else
+		mxapp_trace("tcp_connect:%s(%d)\r\n", MXAPP_SRV_ADDR_IP, MXAPP_SRV_ADDR_PORT);
 		hdl = mx_tcp_connect(MXAPP_SRV_ADDR_IP, MXAPP_SRV_ADDR_PORT, mx_net_get_apn(0), mxapp_srv_ind);
+#endif
 	}
 	if (hdl < 0)
 	{
@@ -254,7 +302,7 @@ static void mxapp_srv_connect(void)
 		StartTimer(MXAPP_TIMER_CMD_TIMEOUT_SERVICE, MXAPP_SRV_CONN_TIMEOUT, mxapp_srv_reconnect);
 	}
 
-	mxapp_trace("%s leave (%d)\r\n", __FUNCTION__, hdl);
+	FUNC_LEAVE;
 }
 
 static void mxapp_srv_disconnect(void)
@@ -311,10 +359,10 @@ kal_int32 mxapp_srv_send(kal_uint8 *dat_in, kal_uint16 in_len, mx_srv_cb cb)
 		}
 		else
 		{
-#if ((MXAPP_SRV_HEART_TIMEOUT == 0)&&(MXAPP_SRV_DISCON_TIMEOUT > 0))
-			StopTimer(MXAPP_TIMER_DISCONNECT_SERVICE);
-			StartTimer(MXAPP_TIMER_DISCONNECT_SERVICE, MXAPP_SRV_DISCON_TIMEOUT, mxapp_srv_disconnect);
-#endif
+//#if ((MXAPP_SRV_HEART_TIMEOUT == 0)&&(MXAPP_SRV_DISCON_TIMEOUT > 0))
+//			StopTimer(MXAPP_TIMER_DISCONNECT_SERVICE);
+//			StartTimer(MXAPP_TIMER_DISCONNECT_SERVICE, MXAPP_SRV_DISCON_TIMEOUT, mxapp_srv_disconnect);
+//#endif
 
 #if MXAPP_SRV_DEBUG_TXRX
 			{
@@ -324,7 +372,7 @@ kal_int32 mxapp_srv_send(kal_uint8 *dat_in, kal_uint16 in_len, mx_srv_cb cb)
 				kal_mem_set(log_buf, 0, sizeof(edp_dbg_buf));
 				for (i = 0; i < ((in_len < MXAPP_SRV_BUFF_MAX_TX) ? in_len : MXAPP_SRV_BUFF_MAX_TX); i++)
 				{
-					kal_sprintf(log_buf, "%x ", dat_in[i]);
+					kal_sprintf(log_buf, "%02x ", dat_in[i]);
 					log_buf += strlen(log_buf);
 				}
 				for (i = 0; i < strlen(log_buf_h);)
@@ -344,43 +392,71 @@ kal_int32 mxapp_srv_send(kal_uint8 *dat_in, kal_uint16 in_len, mx_srv_cb cb)
 }
 
 
-#define MXAPP_SRV_CON_KEEP_TIMEOUT	(600)	/*unit:s*/
+#define MXAPP_SRV_CON_KEEP_TIMEOUT	(180)	/*unit:s*/
 #define MXAPP_SRV_HEART_TIMEOUT_REDUNDANCE	(20)	/*unit:s*/
-#define MXAPP_SRV_HEART_TIMEOUT	((MXAPP_SRV_CON_KEEP_TIMEOUT-MXAPP_SRV_HEART_TIMEOUT_REDUNDANCE)*1000) /*unit:ms*/
+//#define MXAPP_SRV_HEART_TIMEOUT	((MXAPP_SRV_CON_KEEP_TIMEOUT-MXAPP_SRV_HEART_TIMEOUT_REDUNDANCE)*1000) /*unit:ms*/
 #define MXAPP_SRV_HEART_SEND_ACK_TIMEOUT	((5+MXAPP_SRV_HEART_TIMEOUT_REDUNDANCE)*1000) /*unit:ms*/
-#define MXAPP_SRV_DISCON_TIMEOUT	(0) /*unit:ms*/
+//#define MXAPP_SRV_DISCON_TIMEOUT	(0) /*unit:ms*/
 
+static kal_uint32 srv_con_keep = MXAPP_SRV_CON_KEEP_TIMEOUT; // s
+static kal_uint32 srv_heart_timeout = (MXAPP_SRV_CON_KEEP_TIMEOUT - MXAPP_SRV_HEART_TIMEOUT_REDUNDANCE)*1000; // ms
+
+// 修改终端心跳发送间隔，单位为秒（s）
+kal_int8 mxapp_srv_heart_set(kal_uint16 heart_s)
+{
+	if(heart_s > MXAPP_SRV_HEART_TIMEOUT_REDUNDANCE) // must > 20s
+	{
+		srv_con_keep = heart_s;
+		srv_heart_timeout = (srv_con_keep - MXAPP_SRV_HEART_TIMEOUT_REDUNDANCE)*1000;
+		mxapp_trace("%s: %d %d", __FUNCTION__, srv_con_keep, srv_heart_timeout);
+		return 0;
+	}
+	return -1;
+}
+
+// 查询终端心跳发送间隔，单位为秒（s）
+kal_uint32 mxapp_srv_heart_get(void)
+{
+	return srv_con_keep;
+}
 
 static void mxapp_srv_heart_callback(void)
 {
-#if (MXAPP_SRV_HEART_TIMEOUT > 0)
-	FUNC_ENTER;
-
-	if (KAL_FALSE == mx_srv_call_connected())
+	if(srv_heart_timeout > 0)
 	{
-		StartTimer(MXAPP_TIMER_INTERACTION_SERVICE, MXAPP_SRV_HEART_SEND_ACK_TIMEOUT, mxapp_srv_reconnect);
-		mx_srv_heartbeat_jtt();
-	}
-	else
-	{
-		StartTimer(MXAPP_TIMER_INTERACTION_SERVICE, 5000, mxapp_srv_heart_callback);
-	}
+		FUNC_ENTER;
 
-	FUNC_LEAVE;
-#endif
+		if (KAL_FALSE == mxapp_srv_call_connected())
+		{
+			StartTimer(MXAPP_TIMER_INTERACTION_SERVICE, MXAPP_SRV_HEART_SEND_ACK_TIMEOUT, mxapp_srv_reconnect);
+			mx_srv_heartbeat_jtt();
+		}
+		else
+		{
+			StartTimer(MXAPP_TIMER_INTERACTION_SERVICE, 5000, mxapp_srv_heart_callback);
+			mxapp_trace("%s: StartTimer 5000ms", __FUNCTION__);
+		}
+
+		FUNC_LEAVE;
+	}
 }
 
 static void mxapp_srv_heart(void)
 {
-#if (MXAPP_SRV_HEART_TIMEOUT > 0)
-	FUNC_ENTER;
-
-	StopTimer(MXAPP_TIMER_INTERACTION_SERVICE);
-	if (mxapp_srv_hdl > 0)
+	if(srv_heart_timeout > 0)
 	{
-		StartTimer(MXAPP_TIMER_INTERACTION_SERVICE, MXAPP_SRV_HEART_TIMEOUT, mxapp_srv_heart_callback);
-	}
+		FUNC_ENTER;
 
-	FUNC_LEAVE;
-#endif
+		StopTimer(MXAPP_TIMER_INTERACTION_SERVICE);
+		if (mxapp_srv_hdl > 0)
+		{
+			StartTimer(MXAPP_TIMER_INTERACTION_SERVICE, srv_heart_timeout, mxapp_srv_heart_callback);
+			mxapp_trace("%s: StartTimer %dms", __FUNCTION__, srv_heart_timeout);
+		}
+
+		FUNC_LEAVE;
+	}
 }
+
+#endif
+

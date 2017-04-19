@@ -18,3 +18,26 @@ double mx_base_coordinates2double(kal_uint8 *coordinates)
 	return result;
 }
 
+static char imei[] = "123456789012345";
+static char release[] = "MXT1608S-V100C001B006s";
+static char gnss[] = "MXT1608S-V300C001B003E6902";
+
+char * mxapp_get_imei(void)
+{
+	return imei;
+}
+
+char * release_verno(void)
+{
+	return release;
+}
+
+char * gnss_verno(void)
+{
+	return gnss;
+}
+
+kal_uint8 mxapp_battery_get_voltage_percent(void)
+{
+	return 42;
+}

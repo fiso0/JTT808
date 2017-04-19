@@ -6,6 +6,9 @@
 #include "VS_kal_general_types.h"
 
 #define __WHMX_MXT1608S__
+#define __WHMX_SOS_2ROUND__
+
+#define DEBUG_IN_VS 1
 
 #define kal_mem_cpy(...) memcpy(##__VA_ARGS__)
 #define kal_mem_set(...) memset(##__VA_ARGS__)
@@ -15,7 +18,7 @@
 
 #define mxapp_trace(...) printf(##__VA_ARGS__);printf("\n")
 
-#define mx_location_get_latest_position(...)
+#define mx_location_get_latest_position(...) NULL
 #define DTGetRTCTime(...)
 #define MX_BASE_PRINT(...)
 
@@ -28,11 +31,10 @@
 #define mx_tcp_write(...) 1
 #define mmi_flight_mode_switch_for_mx(...)
 #define mx_srv_call_connected(...) 0
+#define mx_location_check_and_start_agps(...)
 
 
-#define mx_srv_config_nv_write(...) 0
 #define mx_location_period_change(...)
-#define mx_pos_mode_set(...) 0
 
 #define MX_APP_CALL_NUM_MAX_LEN     15
 
@@ -42,6 +44,18 @@
 #define MXAPP_TIMER_CMD_TIMEOUT_SERVICE 3
 #define MXAPP_TIMER_DISCONNECT_SERVICE 4
 
+
+#define DEVICE_NUM_LEN 6 // 6位BCD码 JTT808协议规定终端手机号最多12位 前面补0
+#define AUTH_CODE_LEN 20 // 鉴权码长度 要保证最后为0
+typedef struct
+{
+	kal_uint32 heart; // unit: s
+	kal_char srv_ip[16];
+	kal_uint16 srv_port;
+	kal_uint8 auth_code_len;
+	kal_uint8 auth_code[AUTH_CODE_LEN];
+	kal_uint8 cell_num[DEVICE_NUM_LEN];
+} nvram_ef_mxapp_jtt_config_t;
 
 
 /* connected status */

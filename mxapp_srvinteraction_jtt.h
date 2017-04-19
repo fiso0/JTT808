@@ -1,11 +1,10 @@
-#ifndef __JTT808_H__
-#define __JTT808_H__
+
+#if 1
+#ifndef __MXAPP_SRVINTERACTION_JTT_H__
+#define __MXAPP_SRVINTERACTION_JTT_H__
 
 #include "others.h"
 
-/********************
-以下内容放入.h
-********************/
 typedef enum _SRV_CMD_TYPE_
 {
 	MXAPP_SRV_JTT_CMD_UP_ACK = 0x0001, // 终端通用应答
@@ -44,29 +43,92 @@ typedef struct
 }mx_cmd_handle_struct;
 
 
-//设置终端参数: 参数ID
-typedef enum _SRV_SET_PARA_ID_
+//终端参数: 参数ID
+typedef enum _SRV_PARA_ID_
 {
-	MXAPP_SRV_JTT_SET_PARA_HEARTBEAT = 0x0001,
-	MXAPP_SRV_JTT_SET_PARA_MONITOR_NUM = 0x0048,
-	MXAPP_SRV_JTT_SET_PARA_LOC_TYPE = 0x0094,
-	MXAPP_SRV_JTT_SET_PARA_LOC_PROP = 0x0095,
+	MXAPP_SRV_JTT_PARA_HEARTBEAT = 0x0001,
+	MXAPP_SRV_JTT_PARA_SRV_IP = 0x0013,
+	MXAPP_SRV_JTT_PARA_SRV_TCP_PORT = 0x0018,
+	MXAPP_SRV_JTT_PARA_MONITOR_NUM = 0x0048,
+	MXAPP_SRV_JTT_PARA_LOC_TYPE = 0x0094,
+	MXAPP_SRV_JTT_PARA_LOC_PROP = 0x0095,
 
-	MXAPP_SRV_JTT_SET_PARA_INVALID = 0x0000
-}SRV_SET_PARA_ID;
+	/*自定义*/
+	MXAPP_SRV_JTT_PARA_BATTERY = 0xF001,
+
+	MXAPP_SRV_JTT_PARA_INVALID = 0x0000
+}SRV_PARA_ID;
 
 //设置终端参数: 参数ID-处理函数
 typedef struct
 {
-	SRV_SET_PARA_ID para_id;
+	SRV_PARA_ID para_id;
 	kal_int32(*handle)(kal_uint8 *in, kal_uint32 in_len);
 }mx_set_para_handle_struct;
+
+//查询终端参数: 参数ID-处理函数
+typedef struct
+{
+	SRV_PARA_ID para_id;
+	kal_int32(*handle)(kal_uint8 *out/*, kal_uint32 out_len*/);
+}mx_get_para_handle_struct;
+
+// 终端联网进度
+typedef struct
+{
+	kal_uint8 status; // 初始:0 鉴权中:1 注销中:2 注册中:3 鉴权成功:4
+	kal_uint16 flow;
+}mx_login_status;
 
 typedef void(*mx_srv_cb)(void *);
 
 
+/*新接口*/
 kal_int32 mx_srv_receive_handle_jtt(kal_uint8 src, kal_uint8 *in, kal_int32 in_len);
-kal_int32 mx_srv_register_jtt(void);
 kal_int32 mx_srv_heartbeat_jtt(void);
+kal_int32 mx_srv_loc_report_jtt(void);
+kal_int32 mx_srv_ack_jtt(kal_uint8 *para, kal_uint32 para_len);
+kal_int32 mx_srv_config_nv_read(void);
+void mx_srv_auth_code_clear(void);
+
+
+/*原接口*/
+void mxapp_srvinteraction_connect(kal_int32 s32Level);
+void srvinteraction_bootup_location_request(void);
+void mxapp_srvinteraction_first_location(void);
+
+kal_int32 mxapp_srvinteraction_uploader_pos_mode(void);
+kal_int32 mxapp_srvinteraction_uploader_config(void);
+kal_int32 mxapp_srvinteraction_uploader_batt_info(void);
+kal_int32 mxapp_srvinteraction_send_battery_warning(void); 
+
+kal_uint8 mx_pos_mode_set(kal_uint8 mode);
+kal_uint8 mx_pos_period_set(kal_uint8 period_min);
+
+#if defined(__WHMX_SERVER_JTT808__)
+void mxapp_srvinteraction_sos(void);
+#elif defined(__WHMX_SOS_2ROUND__)
+void mxapp_srvinteraction_sos(kal_uint8 type);
+#else
+void mxapp_srvinteraction_sos(void);
+#endif
+
+void mxapp_srvinteraction_locate_and_poweroff(void);
+
+kal_bool mxapp_srvinteraction_if_connected(void); // 2016-6-22
+kal_bool mxapp_srvinteraction_is_connected(void);
+
+#if defined(__WHMX_MXT1608S__)
+void mxapp_srvinteraction_upload_balance_response(kal_uint8 *para,kal_uint32 para_len);
+kal_uint8 mxapp_srvinteraction_location_again_get(void);
+void mxapp_srvinteraction_location_again_set(kal_uint8 ret);
+#endif
+
+#if defined(WHMX_ST_LIS2DS12)
+void mxapp_srvinteraction_upload_step(void);
+#endif
+
 
 #endif
+#endif
+
