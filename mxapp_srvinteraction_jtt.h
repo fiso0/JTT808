@@ -83,6 +83,15 @@ typedef struct
 typedef void(*mx_srv_cb)(void *);
 
 
+// new: 事件ID
+typedef enum _SRV_EVENT_ID_
+{
+	MXAPP_SRV_JTT_EVENT_LOW_POWER = 0xF1, // 低电
+	MXAPP_SRV_JTT_EVENT_NO_POWER = 0xF2, // 无电
+	MXAPP_SRV_JTT_EVENT_INVALID = 0xFF
+}SRV_EVENT_ID;
+
+
 /*新接口*/
 kal_int32 mx_srv_receive_handle_jtt(kal_uint8 src, kal_uint8 *in, kal_int32 in_len);
 kal_int32 mx_srv_heartbeat_jtt(void);

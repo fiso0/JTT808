@@ -910,10 +910,28 @@ static kal_int32 mx_srv_cmd_handle_up_loc_query_ack(SRV_ZXBD_CMD_TYPE cmd, kal_u
 	return len_l;
 }
 
-// TODO: 事件报告
+// 事件报告
 static kal_int32 mx_srv_cmd_handle_up_event_report(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
 {
-	return 0;
+	kal_int32 len_l = -1;
+	kal_uint8 *dat_l = out;
+	SRV_EVENT_ID event;
+
+	if (dat_l == NULL) return len_l;
+
+	if (in&&in_len) // 必须有输入参数
+	{
+		kal_mem_cpy(dat_l, in, in_len);
+		len_l = in_len;
+	}
+	else
+	{
+		return len_l;
+	}
+
+	mxapp_trace("%s: len_l=%d(%x)", __FUNCTION__, len_l, len_l);
+
+	return len_l;
 }
 
 
@@ -2041,8 +2059,19 @@ static void mxapp_srvinteraction_poweroff(void)
 	mxapp_sys_shutdown();
 }
 
+// new: 发送事件报告 可用于报告低电等事件
+kal_int32 mxapp_srvinteraction_send_event(SRV_EVENT_ID evt)
+{
+	mxapp_trace("%s: enter", __FUNCTION__);
+	mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_EVENT_REPORT, &evt, 1);
+	return 0;
+}
+
 void mxapp_srvinteraction_locate_and_poweroff(void)
-{}
+{
+	// 5%电量时触发
+	// 可发送事件报告MXAPP_SRV_JTT_EVENT_NO_POWER
+}
 
 void mxapp_srvinteraction_locate_and_poweroff_remote(ST_MX_LOCATION_INFO *loc)
 {}
@@ -2064,6 +2093,8 @@ kal_int32 mxapp_srvinteraction_uploader_batt_info(void)
 
 kal_int32 mxapp_srvinteraction_send_battery_warning(void)
 {
+	// 20%(10%)电量时触发
+	// 可改为发送事件报告MXAPP_SRV_JTT_EVENT_LOW_POWER
 	mxapp_trace("%s: enter", __FUNCTION__);
 	mx_pos_info_type_set(0x90);
 	mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_LOC_REPORT, NULL, 0);
@@ -2101,10 +2132,13 @@ extern void mx_srv_cmd_location_status_set(kal_uint8 ret)
 #endif
 
 
-#if 0//(DEBUG_IN_VS == 1)
+#if (DEBUG_IN_VS == 1)
 void main(void)
 {
 	kal_uint8 ret;
+	kal_uint8 g_s8RxBuf[MXAPP_JTT_BUFF_MAX] = { 0 };
+
+	mxapp_srvinteraction_send_event(MXAPP_SRV_JTT_EVENT_NO_POWER);
 
 	kal_uint8 buf_in6[] = { 0x7E, 0x81, 0x06, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0xF0, 0x01, 0x72, 0x7E };
 

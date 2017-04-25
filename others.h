@@ -34,7 +34,8 @@
 #define mx_location_check_and_start_agps(...)
 
 
-#define mx_location_period_change(...)
+//#define mx_location_period_change(...)
+#define mx_location_period_change_sec(...)
 
 #define MX_APP_CALL_NUM_MAX_LEN     15
 
