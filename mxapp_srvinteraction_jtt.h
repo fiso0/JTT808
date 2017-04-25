@@ -88,6 +88,7 @@ kal_int32 mx_srv_receive_handle_jtt(kal_uint8 src, kal_uint8 *in, kal_int32 in_l
 kal_int32 mx_srv_heartbeat_jtt(void);
 kal_int32 mx_srv_loc_report_jtt(void);
 kal_int32 mx_srv_ack_jtt(kal_uint8 *para, kal_uint32 para_len);
+kal_int32 mx_srv_config_nv_write(kal_uint8 item);
 kal_int32 mx_srv_config_nv_read(void);
 void mx_srv_auth_code_clear(void);
 
@@ -103,29 +104,18 @@ kal_int32 mxapp_srvinteraction_uploader_batt_info(void);
 kal_int32 mxapp_srvinteraction_send_battery_warning(void); 
 
 kal_uint8 mx_pos_mode_set(kal_uint8 mode);
-kal_uint8 mx_pos_period_set(kal_uint8 period_min);
+kal_uint8 mx_pos_period_set(kal_uint32 period_min);
 
-#if defined(__WHMX_SERVER_JTT808__)
 void mxapp_srvinteraction_sos(void);
-#elif defined(__WHMX_SOS_2ROUND__)
-void mxapp_srvinteraction_sos(kal_uint8 type);
-#else
-void mxapp_srvinteraction_sos(void);
-#endif
 
 void mxapp_srvinteraction_locate_and_poweroff(void);
 
 kal_bool mxapp_srvinteraction_if_connected(void); // 2016-6-22
 kal_bool mxapp_srvinteraction_is_connected(void);
 
-#if defined(__WHMX_MXT1608S__)
-void mxapp_srvinteraction_upload_balance_response(kal_uint8 *para,kal_uint32 para_len);
-kal_uint8 mxapp_srvinteraction_location_again_get(void);
-void mxapp_srvinteraction_location_again_set(kal_uint8 ret);
-#endif
-
-#if defined(WHMX_ST_LIS2DS12)
-void mxapp_srvinteraction_upload_step(void);
+#if defined(__WHMX_CALL_SUPPORT__)
+extern kal_uint8 mx_srv_cmd_location_status_get(void);
+extern void mx_srv_cmd_location_status_set(kal_uint8 ret);
 #endif
 
 

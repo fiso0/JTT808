@@ -70,7 +70,6 @@ static kal_int32 mx_srv_set_para_loc_prop(kal_uint8 *in, kal_uint32 in_len)
 	kal_int8 ret = -1;
 	kal_uint8 idx = 0;
 	kal_uint32 loc_prop = 0; // unit: s
-	kal_uint16 period_min = 0; // unit: min
 
 	if (!in || in_len == 0) return -1;
 
@@ -79,9 +78,7 @@ static kal_int32 mx_srv_set_para_loc_prop(kal_uint8 *in, kal_uint32 in_len)
 		loc_prop = loc_prop * 10 + (in[idx++] - '0');
 	}
 
-	period_min = loc_prop / 60;
-
-	ret = mx_pos_period_set(period_min);
+	ret = mx_pos_period_set(loc_prop);
 
 	return ret;
 }

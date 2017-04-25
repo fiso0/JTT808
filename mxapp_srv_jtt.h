@@ -5,7 +5,8 @@
 
 #include "others.h"
 
-#define SRV_USE_NVRAM 1
+#define SRV_USE_NVRAM 1 // 使用NV参数
+#define SRV_NO_REGISTER 1 // 不注册鉴权
 
 #if (SRV_USE_NVRAM == 0)
 #define JTT808_SERVER_1 1 // 平台1:天眼视讯正式服务器

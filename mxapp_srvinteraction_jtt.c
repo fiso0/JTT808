@@ -3,27 +3,24 @@
 #include "mxapp_srvinteraction_jtt.h"
 
 #define USE_IMEI_AS_CELL_NUM // 使用IMEI低12位作为终端号
-#define USE_JTT808_SERVER_1_SIM_DEVICE // 调试时使用平台1模拟终端号:12000187148
+//#define USE_JTT808_SERVER_1_SIM_DEVICE // 调试时使用平台1模拟终端号:12000187148
 
 #define	MXAPP_JTT_BUFF_MAX	(384)
 #define CELL_NUMBER_LEN (DEVICE_NUM_LEN) // 手机号长度
 #define	FRAME_FLAG_SYMBOL	0x7E // 标识位
 
-#define	PHONE_NO_LEN		MX_APP_CALL_NUM_MAX_LEN
+#define	PHONE_NO_LEN		15
 
 static kal_int32 g_s32FirstConnect = 1;
 static kal_int32 g_s32PowerOff = 0;
 
 static kal_uint8 g_s8TmpBuf[MXAPP_JTT_BUFF_MAX];
-static kal_uint8 g_s8RxBuf[MXAPP_JTT_BUFF_MAX];
+//static kal_uint8 g_s8RxBuf[MXAPP_JTT_BUFF_MAX];
 static kal_uint8 g_s8TxBuf[MXAPP_JTT_BUFF_MAX];
 
 static kal_int8 g_s8Numfamily[PHONE_NO_LEN];
 
 nvram_ef_mxapp_jtt_config_t jtt_config;
-//static kal_uint8 auth_code[AUTH_CODE_LEN]; // 鉴权码
-//static kal_uint8 auth_code_len; // 鉴权码长度（默认0）
-//static kal_uint8 cell_number[CELL_NUMBER_LEN]; // 终端手机号，[0]保存最高位
 
 static kal_uint8 shutdown_is_active = 0; // 系统正在关机
 static kal_uint16 serial_no_up = 0; // 上行消息流水号
@@ -59,8 +56,9 @@ static void mx_srv_register_cb(void * para);
 static void mx_srv_deregister_cb(void * para);
 static void mx_srv_authorize_cb(void * para);
 static void mxapp_srvinteraction_poweroff(void);
-static kal_int32 mx_srv_config_nv_write(kal_uint8 item);
 
+extern kal_char* release_verno(void);
+extern kal_char* gnss_verno(void) ;
 
 kal_uint8 mx_pos_info_type_set(kal_uint8 alarm)
 {
@@ -68,48 +66,30 @@ kal_uint8 mx_pos_info_type_set(kal_uint8 alarm)
 	if ((alarm != 0x00) && (alarm != 0x0C) && ((pos_info_type >= 0x80) || (pos_info_type == 0x0C))) return 0;/*sos important*//*shutdown power important*/
 
 	pos_info_type = alarm;
+	mxapp_trace("%s(%d)", __FUNCTION__, alarm);
 
 	return 1;
 }
 
 kal_uint8 mx_pos_info_type_get(void)
 {
+	mxapp_trace("%s(%d)", __FUNCTION__, pos_info_type);
 	return pos_info_type;
 }
 
 // 设置定位模式
 kal_uint8 mx_pos_mode_set(kal_uint8 mode)
 {
+	mxapp_trace("%s(%d)", __FUNCTION__, mode);
 #if (DEBUG_IN_VS == 0)
-#if defined(__WHMX_MXT1608S__)
-	if(mode == 3)
+	if(mode == 1)
 	{
 		mx_location_mode_change(LOCATION_EVT_RMC, LOCATION_MODE_NORMAL_PERIOD);
-		mx_location_dynamic_period_enable(KAL_TRUE); // enable dynamic period
-	}
-	else
-#endif
-	if(mode == 2)
-	{
-		mx_location_mode_change(LOCATION_EVT_RMC, LOCATION_MODE_FAST_PERIOD);
-#if defined(__WHMX_MXT1608S__)
-		mx_location_dynamic_period_enable(KAL_FALSE); // disable dynamic period
-#endif
-	}
-	else if(mode == 1)
-	{
-		mx_location_mode_change(LOCATION_EVT_RMC, LOCATION_MODE_NORMAL_PERIOD);
-#if defined(__WHMX_MXT1608S__)
-		mx_location_period_change(mx_pos_mode.custom_period);
-		mx_location_dynamic_period_enable(KAL_FALSE); // disable dynamic period
-#endif
+		mx_location_period_change_sec(mx_pos_mode.custom_period);
 	}
 	else
 	{
 		mx_location_mode_change(LOCATION_EVT_RMC, LOCATION_MODE_ONE_TIME);
-#if defined(__WHMX_MXT1608S__)
-		mx_location_dynamic_period_enable(KAL_FALSE); // disable dynamic period
-#endif
 	}
 
 	mx_pos_mode.dev_mode = mode;
@@ -120,14 +100,24 @@ kal_uint8 mx_pos_mode_set(kal_uint8 mode)
 }
 
 // 设置定位周期
-kal_uint8 mx_pos_period_set(kal_uint8 period_min)
+kal_uint8 mx_pos_period_set(kal_uint32 period_sec)
 {
 	if (mx_pos_mode.dev_mode == 1) // 1-标准模式
 	{
-		mx_pos_mode.custom_period = period_min;
+		if(mx_pos_mode.custom_period == period_sec) // same
+		{
+			mxapp_trace("%s: %d same, return", __FUNCTION__, period_sec);
+		}
+		else
+		{
+			mx_pos_mode.custom_period = period_sec;
+			mx_location_period_change_sec(period_sec);
+			mxapp_trace("%s: %d", __FUNCTION__, period_sec);
+		}
+
 		mx_srv_config_nv_write(1);
-		mx_location_period_change(period_min);
 	}
+
 	return 0;
 }
 
@@ -198,7 +188,6 @@ static kal_int32 mx_srv_set_para_loc_type(kal_uint8 *in, kal_uint32 in_len)
 static kal_int32 mx_srv_set_para_loc_prop(kal_uint8 *in, kal_uint32 in_len)
 {
 	kal_uint32 loc_prop = -1; // unit: s
-	kal_uint16 period_min = 0; // unit: min
 
 	if (!in || in_len != 4) return -1;
 
@@ -210,9 +199,7 @@ static kal_int32 mx_srv_set_para_loc_prop(kal_uint8 *in, kal_uint32 in_len)
 	loc_prop <<= 8;
 	loc_prop |= in[3];
 
-	period_min = loc_prop / 60;
-
-	mx_pos_period_set(period_min);
+	mx_pos_period_set(loc_prop);
 
 	return 0;
 }
@@ -320,7 +307,7 @@ kal_int32 mx_srv_get_para_loc_type(kal_uint8 *out)
 kal_int32 mx_srv_get_para_loc_prop(kal_uint8 *out)
 {
 	kal_uint8 idx = 0;
-	kal_uint32 loc_prop = mx_pos_mode.custom_period * 60; // unit: s
+	kal_uint32 loc_prop = mx_pos_mode.custom_period; // unit: s
 
 	if (!out) return -1;
 
@@ -409,7 +396,6 @@ static kal_int32 mx_srv_cmd_handle_up_heartbeat(SRV_ZXBD_CMD_TYPE cmd, kal_uint8
 {
 	kal_int32 len_l = -1;
 	kal_uint8 *dat_l = out;
-	kal_uint32 i = 0, len = 0;
 
 	if (dat_l == NULL) return len_l;
 
@@ -504,7 +490,6 @@ static kal_int32 mx_srv_cmd_handle_up_deregister(SRV_ZXBD_CMD_TYPE cmd, kal_uint
 {
 	kal_int32 len_l = -1;
 	kal_uint8 *dat_l = out;
-	kal_uint32 i = 0, len = 0;
 
 	if (dat_l == NULL) return len_l;
 
@@ -530,7 +515,6 @@ static kal_int32 mx_srv_cmd_handle_up_authorize(SRV_ZXBD_CMD_TYPE cmd, kal_uint8
 {
 	kal_int32 len_l = -1;
 	kal_uint8 *dat_l = out;
-	kal_uint32 i = 0, len = 0;
 
 	if (dat_l == NULL) return len_l;
 
@@ -663,7 +647,6 @@ static kal_int32 mx_srv_cmd_handle_up_loc_report(SRV_ZXBD_CMD_TYPE cmd, kal_uint
 	
 	kal_int32 len_l = -1;
 	kal_uint8 *dat_l = out;
-	kal_uint32 i = 0, len = 0;
 
 	kal_uint8 pos_info_type;
 	ST_MX_LOCATION_INFO *pos_info;
@@ -699,6 +682,7 @@ static kal_int32 mx_srv_cmd_handle_up_loc_report(SRV_ZXBD_CMD_TYPE cmd, kal_uint
 		pos_info = mx_location_get_latest_position();
 		if ((pos_info->valid) && (pos_info->type == LOCATION_TYPE_GPS))
 		{
+			status |= (0x01 << 0); // ACC默认为1
 			status |= (0x01 << 1); // 定位
 			if(pos_info->info.gps.N_S == 'S')
 				status |= (0x01 << 2); // 南纬
@@ -709,6 +693,7 @@ static kal_int32 mx_srv_cmd_handle_up_loc_report(SRV_ZXBD_CMD_TYPE cmd, kal_uint
 			
 			lat = 0.5+(mx_base_coordinates2double(&(pos_info->info.gps.lat[0])) * 1000000);
 			lon = 0.5+(mx_base_coordinates2double(&(pos_info->info.gps.lon[0])) * 1000000);
+			alt = pos_info->info.gps.alt;
 			speed = pos_info->info.gps.speed * 10;
 			course = pos_info->info.gps.course;
 		}
@@ -798,7 +783,6 @@ static kal_int32 mx_srv_cmd_handle_up_loc_query_ack(SRV_ZXBD_CMD_TYPE cmd, kal_u
 
 	kal_int32 len_l = -1;
 	kal_uint8 *dat_l = out;
-	kal_uint32 i = 0, len = 0;
 
 	kal_uint8 pos_info_type;
 	ST_MX_LOCATION_INFO *pos_info;
@@ -838,6 +822,7 @@ static kal_int32 mx_srv_cmd_handle_up_loc_query_ack(SRV_ZXBD_CMD_TYPE cmd, kal_u
 		pos_info = mx_location_get_latest_position();
 		if ((pos_info->valid) && (pos_info->type == LOCATION_TYPE_GPS))
 		{
+			status |= (0x01 << 0); // ACC默认为1
 			status |= (0x01 << 1); // 定位
 			if(pos_info->info.gps.N_S == 'S')
 				status |= (0x01 << 2); // 南纬
@@ -848,6 +833,7 @@ static kal_int32 mx_srv_cmd_handle_up_loc_query_ack(SRV_ZXBD_CMD_TYPE cmd, kal_u
 			
 			lat = 0.5+(mx_base_coordinates2double(&(pos_info->info.gps.lat[0])) * 1000000);
 			lon = 0.5+(mx_base_coordinates2double(&(pos_info->info.gps.lon[0])) * 1000000);
+			alt = pos_info->info.gps.alt;
 			speed = pos_info->info.gps.speed * 10;
 			course = pos_info->info.gps.course;
 		}
@@ -927,6 +913,7 @@ static kal_int32 mx_srv_cmd_handle_up_loc_query_ack(SRV_ZXBD_CMD_TYPE cmd, kal_u
 // TODO: 事件报告
 static kal_int32 mx_srv_cmd_handle_up_event_report(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
 {
+	return 0;
 }
 
 
@@ -1238,6 +1225,19 @@ static kal_int32 mx_srv_cmd_handle_down_loc_query(SRV_ZXBD_CMD_TYPE cmd, kal_uin
 // TODO: 事件设置
 static kal_int32 mx_srv_cmd_handle_down_event_set(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
 {
+	return 0;
+}
+
+// TODO: 电话回拨
+static kal_int32 mx_srv_cmd_handle_down_call_monitor(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
+{
+	return 0;
+}
+
+// TODO: 设置电话本
+static kal_int32 mx_srv_cmd_handle_down_phonebook(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
+{
+	return 0;
 }
 
 static mx_cmd_handle_struct cmd_func[] =
@@ -1262,8 +1262,8 @@ static mx_cmd_handle_struct cmd_func[] =
 	{ MXAPP_SRV_JTT_CMD_DOWN_LOC_QUERY, mx_srv_cmd_handle_down_loc_query }, // 位置信息查询
 	{ MXAPP_SRV_JTT_CMD_DOWN_EVENT_SET, mx_srv_cmd_handle_down_event_set }, // 事件设置
 #ifdef __WHMX_CALL_SUPPORT__
-	{ MXAPP_SRV_JTT_CMD_DOWN_CALL_MONITOR, mx_srv_cmd_handle_down_CALL_MONITOR }, // 电话回拨
-	{ MXAPP_SRV_JTT_CMD_DOWN_PHONEBOOK, mx_srv_cmd_handle_down_PHONEBOOK }, // 设置电话本
+	{ MXAPP_SRV_JTT_CMD_DOWN_CALL_MONITOR, mx_srv_cmd_handle_down_call_monitor }, // 电话回拨
+	{ MXAPP_SRV_JTT_CMD_DOWN_PHONEBOOK, mx_srv_cmd_handle_down_phonebook }, // 设置电话本
 #endif
 #ifdef __WHMX_JTT_FENCE_SUPPORT__
 #endif
@@ -1376,7 +1376,7 @@ static kal_int32 mx_srv_data_package(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_u
 // 终端发送消息至平台
 static kal_int32 mx_srv_send_handle(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *para, kal_uint32 para_len)
 {
-	static kal_uint32 send_len_bak = 0;
+//	static kal_uint32 send_len_bak = 0;
 	mx_cmd_handle_struct *func_l = NULL;
 	kal_uint8 *buf_tmp = g_s8TmpBuf;
 	kal_uint8 *buf_tx = g_s8TxBuf;
@@ -1419,7 +1419,7 @@ static kal_int32 mx_srv_send_handle(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *para, kal_
 		{
 			kal_mem_set(buf_tx, 0, sizeof(g_s8TxBuf));
 			ret = mx_srv_data_package(cmd, buf_tmp, ret, buf_tx); // 封装待发送消息
-			send_len_bak = ret;
+//			send_len_bak = ret;
 			if (/*(g_s32FirstConnect == 0)&&*/(ret > 0))
 			{
 				// upload to server
@@ -1438,108 +1438,14 @@ static kal_int32 mx_srv_send_handle(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *para, kal_
 					pbuf = head;
 					kal_sprintf(pbuf, "mx_srv_send_handle[%d][%04x]:", ret, cmd);
 					pbuf += strlen(pbuf);
-#if defined(__WHMX_SERVER_JTT808__)
+
 					while(idx < ret)
 					{
 						kal_sprintf(pbuf, "%02x ", buf_tx[idx]);
 						pbuf += 3;
 						idx++;
 					}
-#elif defined(__WHMX_SERVER_ONENET__)					
-					kal_sprintf(pbuf, "%c%c%c%c ", buf_tx[0], buf_tx[1], buf_tx[2], buf_tx[3]);
-					pbuf += 5;
-					kal_sprintf(pbuf, "%d ", (buf_tx[4] << 8) | buf_tx[5]);
-					pbuf += strlen(pbuf);
-					for (idx = 6; idx < 18; idx++)
-					{
-						kal_sprintf(pbuf, "%02x", buf_tx[idx]);
-						pbuf += 2;
-					}
-					*pbuf = ' ';
-					pbuf += 1;
-					kal_sprintf(pbuf, "<%04x> ", (buf_tx[18] << 8) | buf_tx[19]);
-					pbuf += 7;
-
-					kal_sprintf(pbuf, "<");
-					pbuf += 1;
-					if ((cmd == MXAPP_SRV_ZXBD_CMD_UP_POSITION))
-					{
-						kal_sprintf(pbuf, "%02d-%02d-%02d ", buf_tx[20], buf_tx[21], buf_tx[22]);
-						pbuf += 9;
-						kal_sprintf(pbuf, "%02d%02d%02d ", buf_tx[23], buf_tx[24], buf_tx[25]);
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%d.%02d%02d%02d ", buf_tx[26], buf_tx[27], buf_tx[28], buf_tx[29]);
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%d.%02d%02d%02d ", buf_tx[30], buf_tx[31], buf_tx[32], buf_tx[33]);
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%d ", buf_tx[34]);
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%d ", buf_tx[35]);
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%d ", (buf_tx[36] << 8) | (buf_tx[37]));/*高度*/
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "0x%02x ", buf_tx[38]);/*定位状态*/
-						pbuf += 5;
-						kal_sprintf(pbuf, "0x%02x ", buf_tx[39]);/*报警状态*/
-						pbuf += 5;
-						kal_sprintf(pbuf, "%d ", buf_tx[40]);/*电量*/
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%c ", buf_tx[41]);/*经度标志*/
-						pbuf += 2;
-						kal_sprintf(pbuf, "%c ", buf_tx[42]);/*纬度标志*/
-						pbuf += 2;
-						kal_sprintf(pbuf, "0x%02x ", buf_tx[43]);/*REV*/
-						pbuf += 5;
-						kal_sprintf(pbuf, "%d:", (buf_tx[44] << 8) | (buf_tx[45]));/*国别*/
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%02d:", (buf_tx[46]));/*运营商*/
-						pbuf += 3;
-						kal_sprintf(pbuf, "%d:", (buf_tx[47] << 8) | (buf_tx[48]));/*小区编号*/
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%d ", (buf_tx[49] << 8) | (buf_tx[50]));/*基站扇区*/
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "0x%02x ", buf_tx[51]);/*REV*/
-						pbuf += 5;
-						kal_sprintf(pbuf, "-%d ", (buf_tx[52]));/*信号量*/
-						pbuf += strlen(pbuf);
-						kal_sprintf(pbuf, "%02d-%02d-%02d ", buf_tx[53], buf_tx[54], buf_tx[55]);/*基站时间1*/
-						pbuf += 9;
-						kal_sprintf(pbuf, "%02d:%02d:%02d ", buf_tx[56], buf_tx[57], buf_tx[58]);/*基站时间2*/
-						pbuf += 9;
-						kal_sprintf(pbuf, "0x%02x 0x%02x ", buf_tx[72], buf_tx[73]);/*步数*/
-						pbuf += 10;
-						for (idx = 74; idx < (send_len_bak - 3); idx++)/*WiFi数据*/
-						{
-							if (buf_tx[idx] == 0) break;
-
-							if (buf_tx[idx] != 0xFF)
-							{
-								*pbuf++ = buf_tx[idx];
-							}
-							else
-							{
-								*pbuf++ = ' ';
-							}
-						}
-					}
-					else
-					{
-						for (idx = 20; idx < (send_len_bak - 4); idx++)
-						{
-							kal_sprintf(pbuf, "%02x ", buf_tx[idx]);
-							pbuf += 3;
-						}
-						kal_sprintf(pbuf, "%02x", buf_tx[idx]);
-						pbuf += 2;
-					}
-					kal_sprintf(pbuf, "> ");
-					pbuf += 2;
-
-					kal_sprintf(pbuf, "%02x %02x ", buf_tx[send_len_bak - 3], buf_tx[send_len_bak - 2]);
-					pbuf += 6;
-					kal_sprintf(pbuf, "0x%02x\0", buf_tx[send_len_bak - 1]);
-					pbuf += 4;
-#endif
+					
 					mx_log_srv_write(head, strlen(head), KAL_TRUE);
 					for (idx = 0; idx < strlen(head);)
 					{
@@ -1884,13 +1790,6 @@ static kal_int8 srvinteraction_location_cb(ST_MX_LOCATION_INFO *pParams)
 
 		mxapp_trace("srvinteraction poweroff");
 
-#if defined(__WHMX_MXT1608S__)
-		// buzzer 1s
-		mxapp_buzzer_ctrl(MX_BUZZER_ONCE);
-		// start led with buzzer
-		mxapp_led_ctrl(MX_LED_POWER_OFF, MX_PLAY_ONCE);
-#endif
-
 		StopTimer(MXAPP_TIMER_NET_UPLOAD);
 		StartTimer(MXAPP_TIMER_NET_UPLOAD, (10 * 1000), mxapp_srvinteraction_poweroff);
 	}
@@ -1959,7 +1858,7 @@ void mx_srv_auth_code_clear(void)
 	mx_srv_config_nv_write(2);
 }
 
-static kal_int32 mx_srv_config_nv_write(kal_uint8 item)
+kal_int32 mx_srv_config_nv_write(kal_uint8 item)
 {
 	kal_int16 error=0;
 	kal_int32 ret=0;
@@ -1992,8 +1891,6 @@ kal_int32 mx_srv_config_nv_read(void)
 	static kal_uint8 mx_nv_read = 1;
 	kal_int16 error = 0;
 	kal_int32 ret = -1;
-//	char num[DEVICE_NUM_LEN] = {0}; // 终端手机号
-//	kal_uint8 num_temp1, num_temp2;
 	kal_uint8 idx;
 
 	if(mx_nv_read)
@@ -2042,9 +1939,11 @@ kal_int32 mx_srv_config_nv_read(void)
 			mxapp_trace("%x", jtt_config.auth_code[idx]);
 		}
 
+#if 0
 		// 设置心跳、服务器地址
 		mxapp_srv_heart_set(jtt_config.heart);
 		mxapp_srv_address_set(&jtt_config.srv_ip[0], jtt_config.srv_port);
+#endif
 
 		// 读取定位模式
         memset(&mx_pos_mode , 0 , sizeof(nvram_ef_mxapp_pos_mode_t));
@@ -2055,36 +1954,11 @@ kal_int32 mx_srv_config_nv_read(void)
                 NVRAM_EF_MXAPP_POS_MODE_SIZE,
                 &error);
 		mxapp_trace("dev_mode = %d (0-low 1-normal 2-continue 3-auto)", mx_pos_mode.dev_mode);
+		mxapp_trace("custom period = %ds", mx_pos_mode.custom_period);
 
 		// 设置定位模式和周期
-#if defined(__WHMX_MXT1608S__)
-		if(mx_pos_mode.dev_mode == 1)
-			mxapp_trace("custom period = %d", mx_pos_mode.custom_period);
-#endif
-	
-#if defined(__WHMX_MXT1608S__)
-		if(mx_pos_mode.dev_mode > 3 /*|| mx_pos_mode.dev_mode == 2*/) mx_pos_mode.dev_mode = 0;
-#else
-		if(mx_pos_mode.dev_mode > 2) mx_pos_mode.dev_mode = 0;
-#endif
 		mx_pos_mode_set(mx_pos_mode.dev_mode);
-#endif
-#if 0
-		// 保存终端手机号(BCD码)
-		for(idx = 0; idx < DEVICE_NUM_LEN; idx++)
-		{
-//			num_temp1 = jtt_config.cell_num[idx] - '0';
-//			num_temp2 = jtt_config.cell_num[idx+1] - '0';
-//			cell_number[idx/2] = (num_temp1<<4) + (num_temp2);
-			cell_number[idx] = jtt_config.cell_num[idx];
-		}
 
-		// 读取鉴权码
-		for(idx = 0; idx < AUTH_CODE_LEN; idx++)
-		{
-			auth_code[idx] = jtt_config.code[idx];
-		}
-		auth_code_len = jtt_config.code_len;
 #endif
 	}
 
@@ -2096,8 +1970,6 @@ void mxapp_srvinteraction_connect(kal_int32 s32Level)
 {
 	kal_int32 ret = -1;
 	kal_uint8 code[AUTH_CODE_LEN] = { 0 };
-	char *imei_p;
-	kal_uint8 idx, i_imei;
 
 	mxapp_trace("%s(JTT): enter", __FUNCTION__);
 
@@ -2154,54 +2026,12 @@ void mxapp_srvinteraction_first_location(void)
 	}
 }
 
-#if defined(__WHMX_SERVER_JTT808__)
 void mxapp_srvinteraction_sos(void)
 {
 	if(g_s32PowerOff) return;/*关机过程不响应SOS*/
 	mx_pos_info_type_set(0x80);
 	srvinteraction_location_request(0);
 }
-#elif defined(__WHMX_SOS_2ROUND__) // SOS 2 parts: WiFi/LBS and GNSS/WiFi/LBS
-void mxapp_srvinteraction_sos(kal_uint8 type)
-{
-	mxapp_trace("%s(%d): enter",__FUNCTION__, type);
-	
-	if(type == 1) // 1. request WiFi/LBS ignore movement
-	{
-		/*set alarm type*/
-		mx_pos_info_type_set(0x80);
-		
-	#if 0 // do not change mode in MXT1608S
-		/*mode change*/
-		mx_location_mode_change(LOCATION_EVT_SOS, LOCATION_MODE_FAST_PERIOD);
-		mxapp_srvinteraction_uploader_pos_mode();
-	#endif
-
-		/*req*/
-		srvinteraction_location_request(3);
-	}
-	else if(type == 2) // 2. request GNSS/WiFi/LBS
-	{
-		/*set normal type*/
-		mx_pos_info_type_set(0x00);
-		
-		/*req*/
-		srvinteraction_location_request(4);
-	}
-}
-#else
-void mxapp_srvinteraction_sos(void)
-{
-	if(g_s32PowerOff) return;/*关机过程不响应SOS*/
-	/*mode change*/
-	mx_location_mode_change(LOCATION_EVT_SOS, LOCATION_MODE_FAST_PERIOD);
-	mxapp_srvinteraction_uploader_pos_mode();
-	/**/	
-	mx_pos_info_type_set(0x80);
-	/*req*/
-	srvinteraction_location_request(0);
-}
-#endif
 
 /* Shut down directly, no location */
 static void mxapp_srvinteraction_poweroff(void)
@@ -2218,19 +2048,26 @@ void mxapp_srvinteraction_locate_and_poweroff_remote(ST_MX_LOCATION_INFO *loc)
 {}
 
 kal_int32 mxapp_srvinteraction_uploader_pos_mode(void)
-{}
+{
+	return 0;
+}
 
 kal_int32 mxapp_srvinteraction_uploader_config(void)
-{}
+{
+	return 0;
+}
 
 kal_int32 mxapp_srvinteraction_uploader_batt_info(void)
-{}
+{
+	return 0;
+}
 
 kal_int32 mxapp_srvinteraction_send_battery_warning(void)
 {
 	mxapp_trace("%s: enter", __FUNCTION__);
 	mx_pos_info_type_set(0x90);
 	mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_LOC_REPORT, NULL, 0);
+	return 0;
 }
 
 kal_bool mxapp_srvinteraction_if_connected(void) // 2016-6-22
@@ -2249,32 +2086,22 @@ kal_bool mxapp_srvinteraction_is_connected(void)
 	return KAL_TRUE;//if_connected;
 }
 
-#if defined(__WHMX_MXT1608S__)
-void mxapp_srvinteraction_upload_balance_response(kal_uint8 *para,kal_uint32 para_len)
-{
 
+#if defined(__WHMX_CALL_SUPPORT__)
+static kal_uint8 s_location_ok = 0;
+extern kal_uint8 mx_srv_cmd_location_status_get(void)
+{
+    return s_location_ok;
 }
 
-kal_uint8 mxapp_srvinteraction_location_again_get(void)
+extern void mx_srv_cmd_location_status_set(kal_uint8 ret)
 {
-
-}
-
-void mxapp_srvinteraction_location_again_set(kal_uint8 ret)
-{
-
+     s_location_ok = ret;
 }
 #endif
 
-#if defined(WHMX_ST_LIS2DS12)
-void mxapp_srvinteraction_upload_step(void)
-{}
-#endif
 
-
-
-
-#if (DEBUG_IN_VS == 1)
+#if 0//(DEBUG_IN_VS == 1)
 void main(void)
 {
 	kal_uint8 ret;
