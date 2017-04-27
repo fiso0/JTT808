@@ -32,7 +32,7 @@
 #define mmi_flight_mode_switch_for_mx(...)
 #define mx_srv_call_connected(...) 0
 #define mx_location_check_and_start_agps(...)
-
+#define mxapp_sys_shutdown(...)
 
 //#define mx_location_period_change(...)
 #define mx_location_period_change_sec(...)

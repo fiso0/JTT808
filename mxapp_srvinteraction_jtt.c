@@ -56,6 +56,7 @@ static void mx_srv_register_cb(void * para);
 static void mx_srv_deregister_cb(void * para);
 static void mx_srv_authorize_cb(void * para);
 static void mxapp_srvinteraction_poweroff(void);
+static void mxapp_srvinteraction_reset(void);
 
 extern kal_char* release_verno(void);
 extern kal_char* gnss_verno(void) ;
@@ -1164,6 +1165,35 @@ static kal_int32 mx_srv_cmd_handle_down_query_para(SRV_ZXBD_CMD_TYPE cmd, kal_ui
 	return out_len;
 }
 
+// 终端控制（3关机、4复位）
+// 返回值: 0 成功 -1 失败
+static kal_int32 mx_srv_cmd_handle_down_control(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
+{
+	kal_int32 ret = -1;
+	kal_uint32 idx = 0;
+	kal_uint8 control;
+
+	if (!in || in_len == 0) return -1;
+	if (!out) return -1;
+
+	control = in[idx++];
+	if (control == 3) // 3关机（不会进行终端通用应答）
+	{
+		ret = 0;
+		mxapp_srvinteraction_poweroff();
+	}
+	else if (control == 4) // 4复位
+	{
+		ret = 0;
+		mxapp_srvinteraction_reset();
+	}
+	else // 其他参数暂不支持
+	{
+	}
+
+	return ret;
+}
+
 // 查询指定终端参数
 // 参数ID 0xF000~0xFFFF为自定义（需平台配合，暂不实现）
 static kal_int32 mx_srv_cmd_handle_down_query_spec_para(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
@@ -1275,6 +1305,7 @@ static mx_cmd_handle_struct cmd_func[] =
 	{ MXAPP_SRV_JTT_CMD_DOWN_REGISTER_ACK, mx_srv_cmd_handle_down_register_ack }, // 终端注册应答
 	{ MXAPP_SRV_JTT_CMD_DOWN_SET_PARA, mx_srv_cmd_handle_down_set_para }, // 设置终端参数
 	{ MXAPP_SRV_JTT_CMD_DOWN_QUERY_PARA, mx_srv_cmd_handle_down_query_para }, // 查询终端参数
+	{ MXAPP_SRV_JTT_CMD_DOWN_CONTROL, mx_srv_cmd_handle_down_control }, // 终端控制
 	{ MXAPP_SRV_JTT_CMD_DOWN_QUERY_SPEC_PARA, mx_srv_cmd_handle_down_query_spec_para }, // 查询指定终端参数
 	{ MXAPP_SRV_JTT_CMD_DOWN_QUERY_PROP, mx_srv_cmd_handle_down_query_prop }, // 查询终端属性
 	{ MXAPP_SRV_JTT_CMD_DOWN_LOC_QUERY, mx_srv_cmd_handle_down_loc_query }, // 位置信息查询
@@ -1615,7 +1646,8 @@ kal_int32 mx_srv_receive_handle_jtt(kal_uint8 src, kal_uint8 *in, kal_int32 in_l
 	}
 
 	/*按需进行应答*/
-	if (cmd == MXAPP_SRV_JTT_CMD_DOWN_SET_PARA) // 设置终端参数，进行终端通用应答
+	if (cmd == MXAPP_SRV_JTT_CMD_DOWN_SET_PARA // 设置终端参数，进行终端通用应答
+		|| cmd == MXAPP_SRV_JTT_CMD_DOWN_CONTROL) // 终端控制，进行终端通用应答
 	{
 		if(ret != 0) ret = 1; // 0成功 1失败
 		
@@ -2051,15 +2083,20 @@ void mxapp_srvinteraction_sos(void)
 	srvinteraction_location_request(0);
 }
 
-/* Shut down directly, no location */
+// 关机
 static void mxapp_srvinteraction_poweroff(void)
 {
 	mxapp_trace("%s: enter", __FUNCTION__);
-
 	mxapp_sys_shutdown();
 }
 
-// new: 发送事件报告 可用于报告低电等事件
+// TODO: 复位
+static void mxapp_srvinteraction_reset(void)
+{
+	mxapp_trace("%s: enter", __FUNCTION__);
+}
+
+// 发送事件报告 可用于报告低电等事件
 kal_int32 mxapp_srvinteraction_send_event(SRV_EVENT_ID evt)
 {
 	mxapp_trace("%s: enter", __FUNCTION__);
@@ -2067,14 +2104,18 @@ kal_int32 mxapp_srvinteraction_send_event(SRV_EVENT_ID evt)
 	return 0;
 }
 
+// TODO: 5%低电(定位)关机
 void mxapp_srvinteraction_locate_and_poweroff(void)
 {
 	// 5%电量时触发
-	// 可发送事件报告MXAPP_SRV_JTT_EVENT_NO_POWER
+	// 可替换为：发送事件报告 mxapp_srvinteraction_send_event(MXAPP_SRV_JTT_EVENT_NO_POWER)
 }
 
+// APP远程(定位)关机
 void mxapp_srvinteraction_locate_and_poweroff_remote(ST_MX_LOCATION_INFO *loc)
-{}
+{
+	return;
+}
 
 kal_int32 mxapp_srvinteraction_uploader_pos_mode(void)
 {
@@ -2094,7 +2135,7 @@ kal_int32 mxapp_srvinteraction_uploader_batt_info(void)
 kal_int32 mxapp_srvinteraction_send_battery_warning(void)
 {
 	// 20%(10%)电量时触发
-	// 可改为发送事件报告MXAPP_SRV_JTT_EVENT_LOW_POWER
+	// 可替换为：发送事件报告 mxapp_srvinteraction_send_event(MXAPP_SRV_JTT_EVENT_LOW_POWER)
 	mxapp_trace("%s: enter", __FUNCTION__);
 	mx_pos_info_type_set(0x90);
 	mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_LOC_REPORT, NULL, 0);

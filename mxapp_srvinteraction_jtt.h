@@ -22,6 +22,7 @@ typedef enum _SRV_CMD_TYPE_
 	MXAPP_SRV_JTT_CMD_DOWN_REGISTER_ACK = 0x8100, // 终端注册应答
 	MXAPP_SRV_JTT_CMD_DOWN_SET_PARA = 0x8103, // 设置终端参数
 	MXAPP_SRV_JTT_CMD_DOWN_QUERY_PARA = 0x8104, // 查询终端参数
+	MXAPP_SRV_JTT_CMD_DOWN_CONTROL = 0x8105, // 终端控制
 	MXAPP_SRV_JTT_CMD_DOWN_QUERY_SPEC_PARA = 0x8106, // 查询指定终端参数
 	MXAPP_SRV_JTT_CMD_DOWN_QUERY_PROP = 0x8107, // 查询终端属性
 	MXAPP_SRV_JTT_CMD_DOWN_LOC_QUERY = 0x8201, // 位置信息查询
@@ -100,6 +101,7 @@ kal_int32 mx_srv_ack_jtt(kal_uint8 *para, kal_uint32 para_len);
 kal_int32 mx_srv_config_nv_write(kal_uint8 item);
 kal_int32 mx_srv_config_nv_read(void);
 void mx_srv_auth_code_clear(void);
+kal_int32 mxapp_srvinteraction_send_event(SRV_EVENT_ID evt);
 
 
 /*原接口*/
@@ -117,7 +119,7 @@ kal_uint8 mx_pos_period_set(kal_uint32 period_min);
 
 void mxapp_srvinteraction_sos(void);
 
-void mxapp_srvinteraction_locate_and_poweroff(void);
+void mxapp_srvinteraction_locate_and_poweroff(void); // 5%低电关机
 
 kal_bool mxapp_srvinteraction_if_connected(void); // 2016-6-22
 kal_bool mxapp_srvinteraction_is_connected(void);

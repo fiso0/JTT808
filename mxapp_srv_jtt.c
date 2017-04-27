@@ -175,6 +175,7 @@ static void mxapp_srv_ind(kal_int8 hdl, kal_uint32 evt)
 		mxapp_srv_con_state = 2;
 		mxapp_srvinteraction_first_location(); // 开AGPS
 	#if (SRV_NO_REGISTER == 1) // 不注册鉴权
+		mxapp_srv_heart(); // 启动心跳
 	#else
 		mxapp_srvinteraction_connect(0);
 	#endif
