@@ -2,6 +2,7 @@
 #include "mxapp_srv_jtt.h"
 #include "mxapp_srvinteraction_jtt.h"
 
+#define IGNORE_ALARM_WHEN_LOC_INVALID // 定位失败时，忽略报警，不上传位置
 #define USE_IMEI_AS_CELL_NUM // 使用IMEI低12位作为终端号
 //#define USE_JTT808_SERVER_1_SIM_DEVICE // 调试时使用平台1模拟终端号:12000187148
 
@@ -67,14 +68,14 @@ kal_uint8 mx_pos_info_type_set(kal_uint8 alarm)
 	if ((alarm != 0x00) && (alarm != 0x0C) && ((pos_info_type >= 0x80) || (pos_info_type == 0x0C))) return 0;/*sos important*//*shutdown power important*/
 
 	pos_info_type = alarm;
-	mxapp_trace("%s(%d)", __FUNCTION__, alarm);
+	mxapp_trace("%s(%x)", __FUNCTION__, alarm);
 
 	return 1;
 }
 
 kal_uint8 mx_pos_info_type_get(void)
 {
-	mxapp_trace("%s(%d)", __FUNCTION__, pos_info_type);
+	mxapp_trace("%s(%x)", __FUNCTION__, pos_info_type);
 	return pos_info_type;
 }
 
@@ -1792,8 +1793,15 @@ kal_int32 mxapp_srvinteraction_upload_location_info(ST_MX_LOCATION_INFO *pLocate
 	}
 
 	pos_info_type = mx_pos_info_type_get();
-	if((pLocateInfo->valid && (pLocateInfo->type == LOCATION_TYPE_GPS))
-	|| (pos_info_type != 0x00)) // GPS有效或不是普通上报时，上报位置
+	
+	// 上报位置
+#ifdef IGNORE_ALARM_WHEN_LOC_INVALID
+	mxapp_trace("IGNORE_ALARM_WHEN_LOC_INVALID");
+	if((pLocateInfo->valid) && (pLocateInfo->type == LOCATION_TYPE_GPS)) // GPS有效
+#else
+	if((pLocateInfo->valid && (pLocateInfo->type == LOCATION_TYPE_GPS)) // GPS有效
+	|| (pos_info_type != 0x00)) // 或不是普通上报时
+#endif
 	{
 		if (pos_info_type == 0x10) // 点名上传（位置信息查询）
 		{
@@ -1807,6 +1815,9 @@ kal_int32 mxapp_srvinteraction_upload_location_info(ST_MX_LOCATION_INFO *pLocate
 	else
 	{
 		mxapp_trace("NO report: location type %d, pos_info_type %x", pLocateInfo->type, pos_info_type);
+#ifdef IGNORE_ALARM_WHEN_LOC_INVALID
+		mx_pos_info_type_set(0x00); // 恢复普通上传
+#endif
 	}
 
 #if MX_LBS_UPLOAD_FILTER
@@ -2136,9 +2147,26 @@ kal_int32 mxapp_srvinteraction_send_battery_warning(void)
 {
 	// 20%(10%)电量时触发
 	// 可替换为：发送事件报告 mxapp_srvinteraction_send_event(MXAPP_SRV_JTT_EVENT_LOW_POWER)
+	ST_MX_LOCATION_INFO *pLocateInfo;
 	mxapp_trace("%s: enter", __FUNCTION__);
 	mx_pos_info_type_set(0x90);
-	mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_LOC_REPORT, NULL, 0);
+	
+#ifdef IGNORE_ALARM_WHEN_LOC_INVALID
+	pLocateInfo = mx_location_get_latest_position();
+	
+	mxapp_trace("IGNORE_ALARM_WHEN_LOC_INVALID");
+	if((pLocateInfo->valid) && (pLocateInfo->type == LOCATION_TYPE_GPS)) // GPS有效
+#endif
+	{
+		mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_LOC_REPORT, NULL, 0);
+	}
+#ifdef IGNORE_ALARM_WHEN_LOC_INVALID
+	else
+	{
+		mxapp_trace("NO report: location type %d", pLocateInfo->type);
+		mx_pos_info_type_set(0x00); // 恢复普通上传
+	}
+#endif
 	return 0;
 }
 
