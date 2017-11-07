@@ -284,7 +284,7 @@ kal_int32 mx_sms_custom_jtt_handle(kal_uint8 src, kal_uint8 *in, kal_int32 in_le
 	return 0;
 }
 
-#if 0//(DEBUG_IN_VS == 1)
+#if (DEBUG_IN_VS == 1)
 void main(void)
 {
 	kal_uint8 ret;

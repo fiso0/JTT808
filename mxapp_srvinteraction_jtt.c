@@ -2201,7 +2201,7 @@ extern void mx_srv_cmd_location_status_set(kal_uint8 ret)
 #endif
 
 
-#if (DEBUG_IN_VS == 1)
+#if 0//(DEBUG_IN_VS == 1)
 void main(void)
 {
 	kal_uint8 ret;
