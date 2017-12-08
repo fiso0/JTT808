@@ -21,6 +21,7 @@ double mx_base_coordinates2double(kal_uint8 *coordinates)
 static char imei[] = "123456789012345";
 static char release[] = "MXT1608S-V100C001B006s";
 static char gnss[] = "MXT1608S-V300C001B003E6902";
+static kal_uint8 iccid[] = { 0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56, 0x78, 0x90 };
 
 char * mxapp_get_imei(void)
 {
@@ -40,4 +41,9 @@ char * gnss_verno(void)
 kal_uint8 mxapp_battery_get_voltage_percent(void)
 {
 	return 42;
+}
+
+void get_iccid_value(kal_uint8 *iccid_p, kal_uint8 source)
+{
+	memcpy(iccid_p, iccid, sizeof(iccid));
 }

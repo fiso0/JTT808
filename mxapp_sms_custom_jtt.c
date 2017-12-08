@@ -284,10 +284,12 @@ kal_int32 mx_sms_custom_jtt_handle(kal_uint8 src, kal_uint8 *in, kal_int32 in_le
 	return 0;
 }
 
-#if (DEBUG_IN_VS == 1)
+#if 0//(DEBUG_IN_VS == 1)
 void main(void)
 {
 	kal_uint8 ret;
+
+	mx_srv_send_card_login_jtt();
 
 	kal_uint8 buf_in11[] = "8103,,0013,122.114.160.11,0018,1";
 	mx_sms_custom_jtt_handle(1, buf_in11, strlen(buf_in11));

@@ -171,7 +171,7 @@ static kal_int32 mx_srv_set_para_monitor_num(kal_uint8 *in, kal_uint32 in_len)
 // 参考mx_srv_cmd_handle_down_pos_interval_min
 static kal_int32 mx_srv_set_para_loc_type(kal_uint8 *in, kal_uint32 in_len)
 {
-	kal_uint8 loc_type = -1;
+	kal_uint8 loc_type = 0;
 
 	if (!in || in_len != 1) return -1;
 
@@ -189,7 +189,7 @@ static kal_int32 mx_srv_set_para_loc_type(kal_uint8 *in, kal_uint32 in_len)
 // 参考mx_srv_cmd_handle_down_period
 static kal_int32 mx_srv_set_para_loc_prop(kal_uint8 *in, kal_uint32 in_len)
 {
-	kal_uint32 loc_prop = -1; // unit: s
+	kal_uint32 loc_prop = 0; // unit: s
 
 	if (!in || in_len != 4) return -1;
 
@@ -206,12 +206,50 @@ static kal_int32 mx_srv_set_para_loc_prop(kal_uint8 *in, kal_uint32 in_len)
 	return 0;
 }
 
+// 设置服务器IP
+// 返回 0:成功
+static kal_int32 mx_srv_set_para_srv_ip(kal_uint8 *in, kal_uint32 in_len)
+{
+	kal_uint8 srv_ip[16] = { 0 };
+
+	if (!in || in_len == 0) return -1;
+
+	kal_mem_cpy(srv_ip, in, in_len);
+	mxapp_srv_address_set(srv_ip, 0);
+
+	return 0;
+}
+
+// 设置服务器TCP端口
+// 返回 0:成功
+static kal_int32 mx_srv_set_para_srv_tcp_port(kal_uint8 *in, kal_uint32 in_len)
+{
+	kal_uint8 idx = 0;
+	kal_uint32 srv_port = 0;
+
+	if (!in || in_len == 0) return -1;
+
+	while (idx < in_len)
+	{
+		srv_port = (srv_port << 8) | (in[idx++]);
+	}
+
+	mxapp_srv_address_set(NULL, srv_port);
+
+	return 0;
+}
+
+
+
 static mx_set_para_handle_struct set_para_func[] =
 {
 	{ MXAPP_SRV_JTT_PARA_HEARTBEAT, mx_srv_set_para_heartbeat }, // 终端心跳发送间隔
 	{ MXAPP_SRV_JTT_PARA_MONITOR_NUM, mx_srv_set_para_monitor_num }, // 监听电话号码
 	{ MXAPP_SRV_JTT_PARA_LOC_TYPE, mx_srv_set_para_loc_type }, // 定位数据上传方式
 	{ MXAPP_SRV_JTT_PARA_LOC_PROP, mx_srv_set_para_loc_prop }, // 定位数据上传设置
+
+	{ MXAPP_SRV_JTT_PARA_SRV_IP, mx_srv_set_para_srv_ip }, // 服务器IP
+	{ MXAPP_SRV_JTT_PARA_SRV_TCP_PORT, mx_srv_set_para_srv_tcp_port }, // 服务器TCP端口
 
 	{ MXAPP_SRV_JTT_PARA_INVALID, NULL }
 };
@@ -936,6 +974,85 @@ static kal_int32 mx_srv_cmd_handle_up_event_report(SRV_ZXBD_CMD_TYPE cmd, kal_ui
 	return len_l;
 }
 
+// 电量信息
+kal_uint8 BATTERY_SENDUP_JTT = 0; // JTT808 上传的电量百分值
+static kal_int32 mx_srv_cmd_handle_up_battery(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
+{
+	kal_int32 len_l = -1;
+	kal_uint8 *dat_l = out;
+	BATTERY_SENDUP_JTT = mxapp_battery_get_voltage_percent();
+
+	if (dat_l == NULL) return len_l;
+
+	if (in&&in_len)
+	{
+		kal_mem_cpy(dat_l, in, in_len);
+		len_l = in_len;
+	}
+	else
+	{
+		len_l = 0;
+
+		/*battery*/
+		dat_l[len_l++] = BATTERY_SENDUP_JTT;
+		
+		dat_l[len_l] = '\0';
+	}
+
+	mxapp_trace("%s: len_l=%d(%x)", __FUNCTION__, len_l, len_l);
+
+	return len_l;
+}
+
+// 卡片登入
+extern void get_iccid_value(kal_uint8 *iccid, kal_uint8 source);
+extern kal_char *release_verno(void);
+static kal_int32 mx_srv_cmd_handle_up_card_login(SRV_ZXBD_CMD_TYPE cmd, kal_uint8 *in, kal_uint32 in_len, kal_uint8 *out)
+{
+	kal_int32 len_l = -1;
+	kal_uint8 *dat_l = out;
+	kal_uint8 iccid[11] = {0};
+	kal_uint8 verno_len = 0;
+	kal_uint8 * verno = NULL;
+
+	mxapp_trace("%s: enter", __FUNCTION__);
+	get_iccid_value(&iccid[0], 0);
+	verno = release_verno();
+	verno_len = strlen(verno);
+
+	if (dat_l == NULL) return len_l;
+
+	if (in&&in_len)
+	{
+		kal_mem_cpy(dat_l, in, in_len);
+		len_l = in_len;
+	}
+	else
+	{
+		len_l = 0;
+
+		/*iccid BCD码*/
+		while(len_l < 10)
+		{
+			mxapp_trace("iccid[%d] = %d", len_l, iccid[len_l]);
+			dat_l[len_l] = (iccid[len_l] << 4) | (iccid[len_l] >> 4); // 0xab -> 0xba
+			len_l++;
+		}
+
+		/*verno_len*/
+		dat_l[len_l++] = verno_len;
+		mxapp_trace("verno_len = %d", verno_len);
+
+		/*verno*/
+		int ret = snprintf(&dat_l[len_l], verno_len, "%s", verno);//not same with snprintf in MTK!
+		len_l += verno_len;
+	}
+
+	mxapp_trace("%s: len_l=%d(%x)", __FUNCTION__, len_l, len_l);
+
+	return len_l;
+}
+
 
 // 平台通用应答
 // 返回值: 0-成功/确认 1-失败 2-消息有误 3-不支持 4-报警处理确认
@@ -1072,11 +1189,11 @@ static kal_int32 mx_srv_cmd_handle_down_set_para(SRV_ZXBD_CMD_TYPE cmd, kal_uint
 		/*参数ID*/
 		para_id = 0;
 		tmp = *dat_l++;
-		para_id |= (tmp << 24);
-		tmp = *dat_l++;
-		para_id |= (tmp << 16);
+		para_id |= (tmp << 12);
 		tmp = *dat_l++;
 		para_id |= (tmp << 8);
+		tmp = *dat_l++;
+		para_id |= (tmp << 4);
 		tmp = *dat_l++;
 		para_id |= tmp;
 
@@ -1301,6 +1418,9 @@ static mx_cmd_handle_struct cmd_func[] =
 	{ MXAPP_SRV_JTT_CMD_UP_LOC_REPORT, mx_srv_cmd_handle_up_loc_report }, // 位置信息汇报
 	{ MXAPP_SRV_JTT_CMD_UP_LOC_QUERY_ACK, mx_srv_cmd_handle_up_loc_query_ack }, // 位置信息查询应答
 	{ MXAPP_SRV_JTT_CMD_UP_EVENT_REPORT, mx_srv_cmd_handle_up_event_report }, // 事件报告
+
+	{ MXAPP_SRV_JTT_CMD_UP_BATTERY, mx_srv_cmd_handle_up_battery}, // 电量信息
+	{ MXAPP_SRV_JTT_CMD_UP_CARD_LOGIN, mx_srv_cmd_handle_up_card_login}, // 卡片登入
 
 	{ MXAPP_SRV_JTT_CMD_DOWN_ACK, mx_srv_cmd_handle_down_ack }, // 平台通用应答
 	{ MXAPP_SRV_JTT_CMD_DOWN_REGISTER_ACK, mx_srv_cmd_handle_down_register_ack }, // 终端注册应答
@@ -1590,7 +1710,7 @@ static kal_int32 mx_srv_data_parse(kal_uint8 src, kal_uint8 *in, kal_uint32 in_l
 	/*消息流水号*/
 	*flow = (buf[11] << 8) | buf[12];
 
-	if ((msg_len & 0x20) == 0) // 不分包
+	if ((msg_len & 0x2000) == 0) // 不分包
 	{
 		kal_mem_cpy(msg, &buf[13], msg_len); // 消息体内容
 	}
@@ -1748,6 +1868,32 @@ kal_int32 mx_srv_ack_jtt(kal_uint8 *para, kal_uint32 para_len)
 	mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_ACK, para, para_len);
 	return 0;
 }
+
+
+// 发送电量信息消息
+kal_int32 mx_srv_send_battery_jtt(kal_bool poweroff)
+{
+	kal_uint8 bat = 0;
+	mxapp_trace("%s: enter", __FUNCTION__);
+	if(poweroff)
+	{
+		mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_BATTERY, &bat, 1);
+	}
+	else
+	{
+		mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_BATTERY, NULL, 0);
+	}
+	return 0;
+}
+
+// 发送卡片登入消息
+kal_int32 mx_srv_send_card_login_jtt(void)
+{
+	mxapp_trace("%s: enter", __FUNCTION__);
+	mx_srv_send_handle(MXAPP_SRV_JTT_CMD_UP_CARD_LOGIN, NULL, 0);
+	return 0;
+}
+
 
 //获取鉴权码
 //返回有效鉴权码长度，返回0表示获取失败
@@ -2207,6 +2353,16 @@ void main(void)
 	kal_uint8 ret;
 	kal_uint8 g_s8RxBuf[MXAPP_JTT_BUFF_MAX] = { 0 };
 
+	kal_uint8 buf_in9[] = { 0x7e, 0x81, 0x03, 0x00, 0x06, 0x71, 0x00, 0x90, 0x00, 0x09, 0x94, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x18, 0x04, 0x00, 0x00, 0x23, 0x9e, 0x58, 0x7e };
+	ret = mx_srv_receive_handle_jtt(0, buf_in9, sizeof(buf_in9));
+
+	kal_uint8 buf_in8[] = { 0x7E, 0x81, 0x03, 0x00, 0x13, 0x01, 0x20, 0x00, 0x18, 0x71, 0x48, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00, 0x01, 0x3C, 0x00, 0x00, 0x09, 0x05, 0x04, 0x00, 0x00, 0x01, 0x0F, 0xAC, 0x7E };//设置心跳（0x0001）为316s（DWORD），设置定位间隔（0x0095）为271s（DWORD）
+	ret = mx_srv_receive_handle_jtt(0, buf_in8, sizeof(buf_in8));
+
+
+	kal_uint8 buf_in7[] = { 0x7E, 0x81, 0x03, 0x00, 0x18, 0x01, 0x20, 0x00, 0x18, 0x71, 0x48, 0x00, 0x01, 0x02, 0x00, 0x00, 0x01, 0x03, 0x09, 0x31, 0x32, 0x33, 0x2e, 0x31, 0x2e, 0x32, 0x2e, 0x33, 0x00, 0x00, 0x01, 0x08, 0x04, 0x00, 0x00, 0x11, 0xd7, 0x77, 0x7E };//设置IP为123.1.2.3，设置端口为4567
+	ret = mx_srv_receive_handle_jtt(0, buf_in7, sizeof(buf_in7));
+
 	mxapp_srvinteraction_send_event(MXAPP_SRV_JTT_EVENT_NO_POWER);
 
 	kal_uint8 buf_in6[] = { 0x7E, 0x81, 0x06, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0xF0, 0x01, 0x72, 0x7E };
@@ -2231,7 +2387,7 @@ void main(void)
 
 	mx_srv_register_jtt(mx_srv_register_cb);
 
-	kal_uint8 buf_in2[] = { 0x7E, 0x81, 0x03, 0x00, 0x1A, 0x01, 0x20, 0x00, 0x18, 0x71, 0x48, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x00, 0x00, 0x48, 0x0B, 0x31, 0x33, 0x38, 0x30, 0x38, 0x36, 0x32, 0x38, 0x38, 0x36, 0x33, 0xD2, 0x7E };
+	kal_uint8 buf_in2[] = { 0x7E, 0x81, 0x03, 0x00, 0x1A, 0x01, 0x20, 0x00, 0x18, 0x71, 0x48, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x00, 0x00, 0x48, 0x0B, 0x31, 0x33, 0x38, 0x30, 0x38, 0x36, 0x32, 0x38, 0x38, 0x36, 0x33, 0xD2, 0x7E };//第二个参数ID有误？
 	ret = mx_srv_receive_handle_jtt(0, buf_in2, sizeof(buf_in2));
 
 	kal_uint8 buf_in[] = { 0x7E, 0x80, 0x01, 0x00, 0x05, 0x02, 0x00, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x25, 0x01, 0x00, 0x01, 0xB6, 0x7E }; // 0x8001 平台通用应答

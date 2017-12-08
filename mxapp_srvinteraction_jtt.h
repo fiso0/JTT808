@@ -17,6 +17,9 @@ typedef enum _SRV_CMD_TYPE_
 	MXAPP_SRV_JTT_CMD_UP_LOC_REPORT = 0x0200, // 位置信息汇报
 	MXAPP_SRV_JTT_CMD_UP_LOC_QUERY_ACK = 0x0201, // 位置信息查询应答
 	MXAPP_SRV_JTT_CMD_UP_EVENT_REPORT = 0x0301, // 事件报告
+	
+	MXAPP_SRV_JTT_CMD_UP_BATTERY = 0x0F01, // 电量信息
+	MXAPP_SRV_JTT_CMD_UP_CARD_LOGIN = 0x0F02, // 卡片登入
 
 	MXAPP_SRV_JTT_CMD_DOWN_ACK = 0x8001, // 平台通用应答
 	MXAPP_SRV_JTT_CMD_DOWN_REGISTER_ACK = 0x8100, // 终端注册应答
@@ -98,6 +101,8 @@ kal_int32 mx_srv_receive_handle_jtt(kal_uint8 src, kal_uint8 *in, kal_int32 in_l
 kal_int32 mx_srv_heartbeat_jtt(void);
 kal_int32 mx_srv_loc_report_jtt(void);
 kal_int32 mx_srv_ack_jtt(kal_uint8 *para, kal_uint32 para_len);
+kal_int32 mx_srv_send_battery_jtt(kal_bool poweroff);
+kal_int32 mx_srv_send_card_login_jtt(void);
 kal_int32 mx_srv_config_nv_write(kal_uint8 item);
 kal_int32 mx_srv_config_nv_read(void);
 void mx_srv_auth_code_clear(void);

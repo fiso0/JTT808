@@ -190,4 +190,6 @@ typedef struct
 	kal_uint8 unused;
 } *KAL_ADM_ID;
 
+void get_iccid_value(kal_uint8 *iccid, kal_uint8 source);
+
 #endif

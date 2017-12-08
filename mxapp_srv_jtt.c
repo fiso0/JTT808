@@ -85,6 +85,10 @@ static void mxapp_srv_recv_handle(kal_uint8 *dat_in, kal_uint16 in_len)
 {
 	kal_int32 ret = -1;
 	kal_uint8 cmd_t = 0;
+	kal_uint8 *p_head = NULL;
+	kal_uint8 *p_tail = NULL;
+	kal_uint16 msg_len = 0;
+	kal_uint16 i = 0;
 
 	FUNC_ENTER;
 
@@ -96,7 +100,11 @@ static void mxapp_srv_recv_handle(kal_uint8 *dat_in, kal_uint16 in_len)
 		kal_mem_set(log_buf, 0, sizeof(edp_dbg_buf));
 		for (i = 0; i < ((in_len < MXAPP_SRV_BUFF_MAX_TX) ? in_len : MXAPP_SRV_BUFF_MAX_TX); i++)
 		{
+#if (DEBUG_IN_VS == 1)
+			kal_sprintf(log_buf, "%02x ", dat_in[i]);
+#else
 			kal_sprintf(log_buf, "%x ", dat_in[i]);
+#endif
 			log_buf += strlen(log_buf);
 		}
 		for (i = 0; i < strlen(log_buf_h);)
@@ -109,10 +117,38 @@ static void mxapp_srv_recv_handle(kal_uint8 *dat_in, kal_uint16 in_len)
 
 	if (dat_in)
 	{
-		ret = mx_srv_receive_handle_jtt(0, dat_in, in_len);
+		while (i < in_len)
+		{
+			/*查找标识位*/
+			while ((i < in_len) && ((p_head == NULL) || (p_tail == NULL)))
+			{
+				if (dat_in[i] == 0x7e)
+				{
+					if (p_head == NULL)
+					{
+						p_head = dat_in + i;
+					}
+					else if (p_tail == NULL)
+					{
+						p_tail = dat_in + i;
+						msg_len = p_tail - p_head + 1;
+					}
+				}
+				i++;
+			}
+		
+			mxapp_trace("msg: offset=%d, len=%d", (p_head - dat_in), msg_len);
+			if (p_head && msg_len)
+			{
+				ret = mx_srv_receive_handle_jtt(0, p_head, msg_len);
+			}
+			p_head = NULL;
+			p_tail = NULL;
+			msg_len = 0;
+		}
 	}
 
-	mxapp_srv_heart();
+//	mxapp_srv_heart();
 
 	mxapp_trace("%s leave (ret=%d)[%x](len=%d)\r\n", __FUNCTION__, ret, cmd_t, /*dat_in ? (*dat_in) : 0, */in_len);
 }
@@ -469,3 +505,26 @@ static void mxapp_srv_heart(void)
 
 #endif
 
+#if (DEBUG_IN_VS == 1)
+void main(void)
+{
+	char test1[] = { 0x7e, 0x80, 0x01, 0x00, 0x05, 0x08, 0x80, 0x20, 0x40, 0x53, 0x47, 0x00, 0xde, 0x00, 0x98, 0x0f, 0x01, 0x00, 0x30 }; // 0.9
+	char test2[] = { 0x7e, 0x80, 0x01, 0x00, 0x05, 0x08, 0x80, 0x20, 0x40, 0x53, 0x47, 0x00, 0xde, 0x00, 0x98, 0x0f, 0x01, 0x00, 0x30, 0x7e }; // 1
+	char test3[] = { 0x7e, 0x80, 0x01, 0x00, 0x05, 0x08, 0x80, 0x20, 0x40, 0x53, 0x47, 0x00, 0xde, 0x00, 0x98, 0x0f, 0x01, 0x00, 0x30, 0x7e, 0x7e, 0x80 }; // 1.1
+	char test4[] = { 0x7e, 0x80, 0x01, 0x00, 0x05, 0x08, 0x80, 0x20, 0x40, 0x53, 0x47, 0x00, 0xde, 0x00, 0x98, 0x0f, 0x01, 0x00, 0x30, 0x7e, 0x7e, 0x80, 0x01, 0x00, 0x05, 0x08, 0x80, 0x20, 0x40, 0x53, 0x47, 0x00, 0xdf, 0x00, 0x99, 0x02, 0x00, 0x00, 0x3c, 0x7e }; // 2
+	
+	mxapp_trace("[test1]0.9", __FUNCTION__);
+	mxapp_srv_recv_handle(test1, sizeof(test1));
+
+	mxapp_trace("[test2]1", __FUNCTION__);
+	mxapp_srv_recv_handle(test2, sizeof(test2));
+
+	mxapp_trace("[test3]1.1", __FUNCTION__);
+	mxapp_srv_recv_handle(test3, sizeof(test3));
+
+	mxapp_trace("[test4]2", __FUNCTION__);
+	mxapp_srv_recv_handle(test4, sizeof(test4));
+
+
+}
+#endif
